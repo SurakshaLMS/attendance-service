@@ -94,9 +94,9 @@ export class OrganizationController {
     );
   }
 
-  @Post('institute/login')
-  async loginToInstituteOrganization(@Body() loginDto: LoginOrganizationDto) {
-    return this.authService.loginToInstituteOrganization(
+  @Post('login')
+  async loginToOrganization(@Body() loginDto: LoginOrganizationDto) {
+    return this.authService.loginToOrganization(
       loginDto.userId,
       loginDto.organizationId,
       loginDto.password,
@@ -144,15 +144,6 @@ export class OrganizationController {
       userId,
       req.user.id,
       verifyDto.approved,
-    );
-  }
-
-  @Post('global/login')
-  async loginToGlobalOrganization(@Body() loginDto: LoginOrganizationDto) {
-    return this.authService.loginToGlobalOrganization(
-      loginDto.userId,
-      loginDto.organizationId,
-      loginDto.password,
     );
   }
 

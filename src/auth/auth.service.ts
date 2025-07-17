@@ -11,12 +11,13 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async loginToInstituteOrganization(
+  async loginToOrganization(
     userId: number,
     organizationId: number,
     password: string,
   ) {
-    const orgUser = await this.prisma.instituteOrganizationUser.findUnique({
+    // First check if this is an institute organization
+    const instituteOrgUser = await this.prisma.instituteOrganizationUser.findUnique({
       where: {
         userId_organizationId: {
           userId,
@@ -33,6 +34,32 @@ export class AuthService {
       },
     });
 
+    if (instituteOrgUser) {
+      return this.processInstituteLogin(instituteOrgUser, password);
+    }
+
+    // If not found in institute orgs, check global organizations
+    const globalOrgUser = await this.prisma.globalOrganizationUser.findUnique({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId,
+        },
+      },
+      include: {
+        user: true,
+        organization: true,
+      },
+    });
+
+    if (globalOrgUser) {
+      return this.processGlobalLogin(globalOrgUser, password);
+    }
+
+    throw new Error('User not found in any organization');
+  }
+
+  private async processInstituteLogin(orgUser: any, password: string) {
     if (!orgUser || !orgUser.isActive) {
       throw new Error('User not found in organization or inactive');
     }
@@ -51,7 +78,7 @@ export class AuthService {
     }
 
     const payload: JwtPayload = {
-      sub: userId,
+      sub: orgUser.userId,
       email: orgUser.user.email,
       institutes: [orgUser.organization.institute.id],
       organizationType: 'institute',
@@ -67,6 +94,7 @@ export class AuthService {
         firstName: orgUser.user.firstName,
         lastName: orgUser.user.lastName,
         role: orgUser.role,
+        organizationType: 'institute',
         organization: {
           id: orgUser.organization.id,
           name: orgUser.organization.name,
@@ -79,24 +107,7 @@ export class AuthService {
     };
   }
 
-  async loginToGlobalOrganization(
-    userId: number,
-    organizationId: number,
-    password: string,
-  ) {
-    const orgUser = await this.prisma.globalOrganizationUser.findUnique({
-      where: {
-        userId_organizationId: {
-          userId,
-          organizationId,
-        },
-      },
-      include: {
-        user: true,
-        organization: true,
-      },
-    });
-
+  private async processGlobalLogin(orgUser: any, password: string) {
     if (!orgUser || !orgUser.isActive) {
       throw new Error('User not found in organization or inactive');
     }
@@ -115,7 +126,7 @@ export class AuthService {
     }
 
     const payload: JwtPayload = {
-      sub: userId,
+      sub: orgUser.userId,
       email: orgUser.user.email,
       organizationType: 'global',
       organizationId: orgUser.organizationId,
@@ -130,12 +141,31 @@ export class AuthService {
         firstName: orgUser.user.firstName,
         lastName: orgUser.user.lastName,
         role: orgUser.role,
+        organizationType: 'global',
         organization: {
           id: orgUser.organization.id,
           name: orgUser.organization.name,
         },
       },
     };
+  }
+
+  async loginToInstituteOrganization(
+    userId: number,
+    organizationId: number,
+    password: string,
+  ) {
+    // Use the unified login method
+    return this.loginToOrganization(userId, organizationId, password);
+  }
+
+  async loginToGlobalOrganization(
+    userId: number,
+    organizationId: number,
+    password: string,
+  ) {
+    // Use the unified login method
+    return this.loginToOrganization(userId, organizationId, password);
   }
 
   async setOrganizationPassword(

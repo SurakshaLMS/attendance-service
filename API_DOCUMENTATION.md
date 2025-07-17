@@ -27,8 +27,7 @@ This microservice manages organizations, lectures, and user enrollments for the 
 ## API Endpoints
 
 ### Authentication
-- `POST /api/organizations/institute/login` - Login to institute organization
-- `POST /api/organizations/global/login` - Login to global organization
+- `POST /api/organizations/login` - Login to any organization (institute or global)
 
 ### Institute Organizations
 - `POST /api/organizations/institute` - Create institute organization
@@ -55,6 +54,70 @@ This microservice manages organizations, lectures, and user enrollments for the 
 
 ### User Data
 - `GET /api/organizations/my-organizations` - Get user's organizations
+
+## Authentication Details
+
+### Unified Login
+The service now uses a single login endpoint that automatically detects whether you're logging into an institute or global organization.
+
+**Endpoint:** `POST /api/organizations/login`
+
+**Request Body:**
+```json
+{
+  "userId": 1,
+  "organizationId": 1,
+  "password": "organization_specific_password"
+}
+```
+
+**Response for Institute Organization:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "student@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "role": "STUDENT",
+    "organizationType": "institute",
+    "organization": {
+      "id": 1,
+      "name": "Computer Science Department",
+      "institute": {
+        "id": 1,
+        "name": "University of Technology"
+      }
+    }
+  }
+}
+```
+
+**Response for Global Organization:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "member@example.com",
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "role": "MEMBER",
+    "organizationType": "global",
+    "organization": {
+      "id": 5,
+      "name": "Programming Club"
+    }
+  }
+}
+```
+
+**Using the Token:**
+Include the access token in subsequent requests:
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
 
 ## Environment Variables
 
