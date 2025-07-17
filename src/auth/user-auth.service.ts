@@ -15,8 +15,9 @@ export class UserAuthService {
 
   async hashPassword(password: string): Promise<string> {
     // Using configurable salt rounds from environment
-    const saltRounds = this.configService.get<number>('PASSWORD_SALT_ROUNDS') || 12;
-    return bcrypt.hash(password, saltRounds);
+    const saltRounds = parseInt(this.configService.get<string>('PASSWORD_SALT_ROUNDS', '12'));
+    const salt = await bcrypt.genSalt(saltRounds);
+    return bcrypt.hash(password, salt);
   }
 
   async validatePassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
@@ -83,8 +84,21 @@ export class UserAuthService {
       throw new UnauthorizedException('User has no password set. Please contact administrator.');
     }
 
-    // Validate password
-    const isPasswordValid = await this.validatePassword(password, user.password);
+    // Validate password - try both methods for compatibility
+    let isPasswordValid = false;
+    
+    // First try the standard validation method
+    isPasswordValid = await this.validatePassword(password, user.password);
+    
+    // If that fails, try the enhanced validation method (for backward compatibility)
+    if (!isPasswordValid) {
+      try {
+        isPasswordValid = await this.validatePasswordWithKey(password, user.password);
+      } catch (error) {
+        // Ignore errors from enhanced validation and proceed with standard result
+      }
+    }
+    
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid email or password');
     }
