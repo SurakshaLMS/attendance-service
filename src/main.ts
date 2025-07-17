@@ -37,16 +37,16 @@ async function bootstrap() {
 
     // Global validation with security
     app.useGlobalPipes(
-      new CustomValidationPipe(),
       new ValidationPipe({
         whitelist: true,
         forbidNonWhitelisted: true,
         transform: true,
         transformOptions: {
-          enableImplicitConversion: false,
+          enableImplicitConversion: true,
         },
-        disableErrorMessages: process.env.NODE_ENV === 'production',
+        disableErrorMessages: false, // Keep error messages for debugging
       }),
+      new CustomValidationPipe(),
     );
 
     // Security interceptors
