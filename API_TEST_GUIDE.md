@@ -1,9 +1,58 @@
 # Organization Service API Testing
 
-## Server Status
-✅ **Server is running successfully on: http://localhost:3000**
+## 🔐 NEW: Central Authentication System (Recommended)
 
-## Available API Endpoints
+### Server Status
+✅ **Server is running successfully on: http://localhost:3000**
+✅ **Central Authentication endpoints available**
+
+### 1. Register a new user
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "testuser@example.com",
+    "username": "testuser123",
+    "firstName": "Test",
+    "lastName": "User",
+    "password": "SecurePassword123",
+    "userType": "STUDENT"
+  }'
+```
+
+### 2. Login with central authentication
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "testuser@example.com",
+    "password": "SecurePassword123"
+  }'
+```
+
+### 3. Change password (requires auth token)
+```bash
+curl -X PUT http://127.0.0.1:3000/api/v1/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN_HERE" \
+  -d '{
+    "currentPassword": "SecurePassword123",
+    "newPassword": "NewSecurePassword456"
+  }'
+```
+
+## Security Features Implemented
+✅ **Configurable bcrypt Encryption**: Salt rounds via PASSWORD_SALT_ROUNDS env var (default: 12)
+✅ **Additional Encryption Layer**: Enhanced security using PASSWORD_ENCRYPTION_KEY
+✅ **JWT Authentication**: Secure token-based authentication with configurable expiration
+✅ **User Types**: STUDENT, INSTRUCTOR, ADMIN, STAFF, GUEST
+✅ **Central Login**: Single password for all organizations
+✅ **Input Validation**: All endpoints validate input data
+✅ **Environment Configuration**: All security settings configurable via .env file
+
+---
+
+## 🏢 Legacy Organization Authentication (Backward Compatible)
 
 ### Base URL: `http://localhost:3000/api`
 

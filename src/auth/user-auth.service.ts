@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtPayload } from './jwt.strategy';
@@ -9,16 +10,43 @@ export class UserAuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private configService: ConfigService,
   ) {}
 
   async hashPassword(password: string): Promise<string> {
-    // Using bcrypt with salt rounds of 12 for security
-    const saltRounds = 12;
+    // Using configurable salt rounds from environment
+    const saltRounds = this.configService.get<number>('PASSWORD_SALT_ROUNDS') || 12;
     return bcrypt.hash(password, saltRounds);
   }
 
   async validatePassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
     return bcrypt.compare(plainPassword, hashedPassword);
+  }
+
+  /**
+   * Additional encryption method using the environment encryption key
+   * This can be used for additional security layers if needed
+   */
+  private getEncryptionSalt(): string {
+    const encryptionKey = this.configService.get<string>('PASSWORD_ENCRYPTION_KEY');
+    if (!encryptionKey) {
+      throw new Error('PASSWORD_ENCRYPTION_KEY not found in environment variables');
+    }
+    return encryptionKey.substring(0, 16); // Use first 16 chars as additional salt
+  }
+
+  async hashPasswordWithKey(password: string): Promise<string> {
+    // Enhanced encryption with additional salt from encryption key
+    const saltRounds = this.configService.get<number>('PASSWORD_SALT_ROUNDS') || 12;
+    const additionalSalt = this.getEncryptionSalt();
+    const passwordWithSalt = password + additionalSalt;
+    return bcrypt.hash(passwordWithSalt, saltRounds);
+  }
+
+  async validatePasswordWithKey(plainPassword: string, hashedPassword: string): Promise<boolean> {
+    const additionalSalt = this.getEncryptionSalt();
+    const passwordWithSalt = plainPassword + additionalSalt;
+    return bcrypt.compare(passwordWithSalt, hashedPassword);
   }
 
   async login(email: string, password: string) {

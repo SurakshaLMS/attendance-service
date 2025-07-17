@@ -145,10 +145,12 @@ The system now uses a centralized authentication system where users have a singl
 ```
 
 ### Security Features
-- **bcrypt Encryption**: Passwords are hashed using bcrypt with 12 salt rounds
-- **JWT Authentication**: Secure token-based authentication
+- **Configurable bcrypt Encryption**: Salt rounds configurable via PASSWORD_SALT_ROUNDS environment variable (default: 12)
+- **Additional Encryption Layer**: Optional enhanced encryption using PASSWORD_ENCRYPTION_KEY for extra security
+- **JWT Authentication**: Secure token-based authentication with configurable expiration
 - **Role-based Access**: User types include STUDENT, INSTRUCTOR, ADMIN, STAFF, GUEST
 - **Organization Context**: Single login provides access to all user's organizations
+- **Environment-based Configuration**: All security parameters configurable via environment variables
 
 ### Legacy Organization Login
 For backward compatibility, the organization-specific login is still available:
@@ -179,6 +181,10 @@ DATABASE_URL="mysql://username:password@localhost:3306/organization_service"
 # JWT
 JWT_SECRET="your-secret-key-here"
 JWT_EXPIRES_IN="24h"
+
+# Password Encryption
+PASSWORD_SALT_ROUNDS=12
+PASSWORD_ENCRYPTION_KEY="your-encryption-key-here"
 
 # Main LMS API (for syncing)
 MAIN_LMS_API_URL="http://localhost:3001"
