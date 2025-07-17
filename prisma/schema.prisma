@@ -19,6 +19,8 @@ model User {
   firstName        String
   lastName         String
   profilePicture   String?
+  password         String?                       // Encrypted password using bcrypt (nullable for migration)
+  userType         UserType                      @default(STUDENT)
   isActive         Boolean                       @default(true)
   lastSyncedAt     DateTime                      @default(now())
   createdAt        DateTime                      @default(now())
@@ -323,6 +325,14 @@ enum DocumentType {
   VIDEO
   AUDIO
   OTHER
+}
+
+enum UserType {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+  STAFF
+  GUEST
 }
 
 // Documents attached to cause lectures

@@ -4,10 +4,12 @@ This microservice manages organizations, lectures, and user enrollments for the 
 
 ## Features
 
+- **Central User Authentication**: Users have a single password with bcrypt encryption
 - **Institute Organizations**: Organizations within specific institutes
 - **Global Organizations**: Organizations not tied to specific institutes  
-- **Separate Authentication**: Each organization has its own password system
+- **Legacy Organization Authentication**: Backward compatible organization-specific passwords
 - **Role-based Access**: Different user roles (President, Vice President, Secretary, etc.)
+- **User Types**: STUDENT, INSTRUCTOR, ADMIN, STAFF, GUEST classifications
 - **Lecture Management**: Public and private lectures for organizations
 - **Enrollment System**: Enrollment keys and verification workflows
 - **Sync Integration**: Automatic synchronization with main LMS
@@ -27,7 +29,11 @@ This microservice manages organizations, lectures, and user enrollments for the 
 ## API Endpoints
 
 ### Authentication
-- `POST /api/organizations/login` - Login to any organization (institute or global)
+- `POST /api/v1/auth/login` - Central user login (recommended)
+- `POST /api/v1/auth/register` - Register new user
+- `PUT /api/v1/auth/change-password` - Change user password
+- `POST /api/v1/auth/set-password` - Set password for user (admin only)
+- `POST /api/organizations/login` - Legacy organization-specific login
 
 ### Institute Organizations
 - `POST /api/organizations/institute` - Create institute organization
@@ -57,8 +63,95 @@ This microservice manages organizations, lectures, and user enrollments for the 
 
 ## Authentication Details
 
-### Unified Login
-The service now uses a single login endpoint that automatically detects whether you're logging into an institute or global organization.
+### Central User Authentication (Recommended)
+The system now uses a centralized authentication system where users have a single password stored in the users table with industry-standard bcrypt encryption.
+
+**Primary Login Endpoint:** `POST /api/v1/auth/login`
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "userPassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": 1,
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "userType": "STUDENT",
+    "profilePicture": "https://example.com/profile.jpg",
+    "organizations": {
+      "institute": [
+        {
+          "id": 1,
+          "name": "Computer Science Department",
+          "role": "STUDENT",
+          "institute": {
+            "id": 1,
+            "name": "University of Technology"
+          }
+        }
+      ],
+      "global": [
+        {
+          "id": 5,
+          "name": "Programming Club",
+          "role": "MEMBER"
+        }
+      ]
+    }
+  }
+}
+```
+
+### User Registration
+**Endpoint:** `POST /api/v1/auth/register`
+
+**Request Body:**
+```json
+{
+  "email": "newuser@example.com",
+  "username": "newuser123",
+  "firstName": "Jane",
+  "lastName": "Smith",
+  "password": "securePassword123",
+  "userType": "STUDENT"
+}
+```
+
+### Password Management
+
+**Change Password:** `PUT /api/v1/auth/change-password`
+```json
+{
+  "currentPassword": "oldPassword123",
+  "newPassword": "newSecurePassword456"
+}
+```
+
+**Set Password (Admin):** `POST /api/v1/auth/set-password`
+```json
+{
+  "userId": 1,
+  "password": "newPassword123"
+}
+```
+
+### Security Features
+- **bcrypt Encryption**: Passwords are hashed using bcrypt with 12 salt rounds
+- **JWT Authentication**: Secure token-based authentication
+- **Role-based Access**: User types include STUDENT, INSTRUCTOR, ADMIN, STAFF, GUEST
+- **Organization Context**: Single login provides access to all user's organizations
+
+### Legacy Organization Login
+For backward compatibility, the organization-specific login is still available:
 
 **Endpoint:** `POST /api/organizations/login`
 
@@ -71,49 +164,7 @@ The service now uses a single login endpoint that automatically detects whether 
 }
 ```
 
-**Response for Institute Organization:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": 1,
-    "email": "student@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "role": "STUDENT",
-    "organizationType": "institute",
-    "organization": {
-      "id": 1,
-      "name": "Computer Science Department",
-      "institute": {
-        "id": 1,
-        "name": "University of Technology"
-      }
-    }
-  }
-}
-```
-
-**Response for Global Organization:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "user": {
-    "id": 1,
-    "email": "member@example.com",
-    "firstName": "Jane",
-    "lastName": "Smith",
-    "role": "MEMBER",
-    "organizationType": "global",
-    "organization": {
-      "id": 5,
-      "name": "Programming Club"
-    }
-  }
-}
-```
-
-**Using the Token:**
+### Using the Token
 Include the access token in subsequent requests:
 ```
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...

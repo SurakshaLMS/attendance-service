@@ -7,7 +7,7 @@ export interface JwtPayload {
   sub: number;
   email: string;
   institutes?: number[];
-  organizationType?: 'institute' | 'global';
+  organizationType?: 'institute' | 'global' | 'central';
   organizationId?: number;
   role?: string;
 }
