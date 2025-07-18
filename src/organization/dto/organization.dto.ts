@@ -1,116 +1,56 @@
-import { IsString, IsOptional, IsBoolean, IsEnum, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsBoolean, IsOptional, IsEnum } from 'class-validator';
 
-export class CreateInstituteOrganizationDto {
-  @IsNumber()
-  instituteId: number;
-
-  @IsString()
-  name: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  logo?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresVerification?: boolean = false;
+export enum OrganizationType {
+  INSTITUTE = 'INSTITUTE',
+  GLOBAL = 'GLOBAL',
 }
 
-export class CreateGlobalOrganizationDto {
+export class CreateOrganizationDto {
   @IsString()
+  @IsNotEmpty()
   name: string;
 
-  @IsOptional()
-  @IsString()
-  description?: string;
+  @IsEnum(OrganizationType)
+  type: OrganizationType;
 
-  @IsOptional()
-  @IsString()
-  logo?: string;
-
-  @IsOptional()
   @IsBoolean()
-  requiresVerification?: boolean = false;
+  @IsOptional()
+  isPublic?: boolean = false;
+
+  @IsString()
+  @IsOptional()
+  enrollmentKey?: string;
+}
+
+export class UpdateOrganizationDto {
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isPublic?: boolean;
+
+  @IsString()
+  @IsOptional()
+  enrollmentKey?: string;
 }
 
 export class EnrollUserDto {
   @IsString()
-  enrollmentKey: string;
+  @IsNotEmpty()
+  organizationId: string;
 
   @IsString()
-  password: string;
-
   @IsOptional()
-  @IsEnum(['PRESIDENT', 'VICE_PRESIDENT', 'SECRETARY', 'TREASURER', 'MEMBER', 'MODERATOR'])
-  role?: string = 'MEMBER';
-}
-
-export class EnrollGlobalUserDto {
-  @IsString()
-  enrollmentKey: string;
-
-  @IsString()
-  password: string;
-
-  @IsOptional()
-  @IsEnum(['ADMIN', 'PRESIDENT', 'VICE_PRESIDENT', 'SECRETARY', 'TREASURER', 'MEMBER', 'MODERATOR'])
-  role?: string = 'MEMBER';
-}
-
-export class LoginOrganizationDto {
-  @IsNumber()
-  userId: number;
-
-  @IsNumber()
-  organizationId: number;
-
-  @IsString()
-  password: string;
+  enrollmentKey?: string;
 }
 
 export class VerifyUserDto {
+  @IsString()
+  @IsNotEmpty()
+  userId: string;
+
   @IsBoolean()
-  approved: boolean;
-}
-
-export class CreateLectureDto {
-  @IsString()
-  title: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  content?: string;
-
-  @IsEnum(['PUBLIC', 'PRIVATE'])
-  visibility: 'PUBLIC' | 'PRIVATE';
-
-  @IsEnum(['GLOBAL', 'INSTITUTE_ORGANIZATION'])
-  level: 'GLOBAL' | 'INSTITUTE_ORGANIZATION';
-
-  @IsOptional()
-  @IsNumber()
-  organizationId?: number;
-
-  @IsOptional()
-  @IsEnum(['institute', 'global'])
-  organizationType?: 'institute' | 'global';
-}
-
-export class AssignUserDto {
-  @IsNumber()
-  userId: number;
-
-  @IsEnum(['PRESIDENT', 'VICE_PRESIDENT', 'SECRETARY', 'TREASURER', 'MEMBER', 'MODERATOR'])
-  role: string;
-
-  @IsString()
-  password: string;
+  isVerified: boolean;
 }

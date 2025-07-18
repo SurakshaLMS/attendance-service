@@ -1,324 +1,437 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcryptjs';
+import { CreateOrganizationDto, UpdateOrganizationDto, EnrollUserDto, VerifyUserDto } from './dto/organization.dto';
 
 @Injectable()
 export class OrganizationService {
   constructor(private prisma: PrismaService) {}
 
-  // Institute Organization Methods
-  async createInstituteOrganization(
-    instituteId: number,
-    name: string,
-    description?: string,
-    logo?: string,
-    requiresVerification: boolean = false,
-  ) {
-    const enrollmentKey = this.generateEnrollmentKey();
+  /**
+   * Create a new organization
+   */
+  async createOrganization(createOrganizationDto: CreateOrganizationDto, creatorUserId: string) {
+    const { name, type, isPublic, enrollmentKey } = createOrganizationDto;
 
-    return this.prisma.instituteOrganization.create({
-      data: {
-        instituteId,
-        name,
-        description,
-        logo,
-        enrollmentKey,
-        requiresVerification,
-      },
-      include: {
-        institute: true,
-      },
-    });
-  }
-
-  async enrollUserInInstituteOrganization(
-    userId: number,
-    enrollmentKey: string,
-    password: string,
-    role: 'PRESIDENT' | 'VICE_PRESIDENT' | 'SECRETARY' | 'TREASURER' | 'MEMBER' | 'MODERATOR' = 'MEMBER',
-  ) {
-    const organization = await this.prisma.instituteOrganization.findUnique({
-      where: { enrollmentKey },
-    });
-
-    if (!organization || !organization.isActive) {
-      throw new Error('Invalid enrollment key or organization inactive');
+    // Validate enrollment key requirement
+    if (!isPublic && !enrollmentKey) {
+      throw new BadRequestException('Enrollment key is required for private organizations');
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const verificationStatus = organization.requiresVerification
-      ? 'PENDING'
-      : 'APPROVED';
-
-    return this.prisma.instituteOrganizationUser.create({
-      data: {
-        userId,
-        organizationId: organization.id,
-        role,
-        hashedPassword,
-        verificationStatus,
-      },
-      include: {
-        user: true,
-        organization: {
-          include: {
-            institute: true,
-          },
-        },
-      },
-    });
-  }
-
-  async verifyInstituteOrganizationUser(
-    organizationUserId: number,
-    verifierId: number,
-    approved: boolean,
-  ) {
-    const status = approved ? 'APPROVED' : 'REJECTED';
-
-    return this.prisma.instituteOrganizationUser.update({
-      where: { id: organizationUserId },
-      data: {
-        verificationStatus: status,
-        verifiedBy: verifierId,
-        verifiedAt: new Date(),
-      },
-      include: {
-        user: true,
-        organization: true,
-        verifier: true,
-      },
-    });
-  }
-
-  async assignUserDirectlyToInstituteOrganization(
-    userId: number,
-    organizationId: number,
-    role: 'PRESIDENT' | 'VICE_PRESIDENT' | 'SECRETARY' | 'TREASURER' | 'MEMBER' | 'MODERATOR',
-    assignedBy: number,
-    password: string,
-  ) {
-    // Only presidents and vice presidents can assign users directly
-    const assigner = await this.prisma.instituteOrganizationUser.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: assignedBy,
-          organizationId,
-        },
-      },
-    });
-
-    if (!assigner || !['PRESIDENT', 'VICE_PRESIDENT'].includes(assigner.role)) {
-      throw new Error('Only presidents or vice presidents can assign users');
+    // Check if enrollment key is unique (if provided)
+    if (enrollmentKey) {
+      const existingOrg = await this.prisma.organization.findUnique({
+        where: { enrollmentKey },
+      });
+      if (existingOrg) {
+        throw new BadRequestException('Enrollment key already exists');
+      }
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    return this.prisma.instituteOrganizationUser.create({
-      data: {
-        userId,
-        organizationId,
-        role,
-        hashedPassword,
-        verificationStatus: 'APPROVED',
-        verifiedBy: assignedBy,
-        verifiedAt: new Date(),
-      },
-      include: {
-        user: true,
-        organization: true,
-      },
-    });
-  }
-
-  // Global Organization Methods
-  async createGlobalOrganization(
-    name: string,
-    description?: string,
-    logo?: string,
-    requiresVerification: boolean = false,
-  ) {
-    const enrollmentKey = this.generateEnrollmentKey();
-
-    return this.prisma.globalOrganization.create({
+    // Create organization
+    const organization = await this.prisma.organization.create({
       data: {
         name,
-        description,
-        logo,
-        enrollmentKey,
-        requiresVerification,
-      },
-    });
-  }
-
-  async enrollUserInGlobalOrganization(
-    userId: number,
-    enrollmentKey: string,
-    password: string,
-    role: 'ADMIN' | 'PRESIDENT' | 'VICE_PRESIDENT' | 'SECRETARY' | 'TREASURER' | 'MEMBER' | 'MODERATOR' = 'MEMBER',
-  ) {
-    const organization = await this.prisma.globalOrganization.findUnique({
-      where: { enrollmentKey },
-    });
-
-    if (!organization || !organization.isActive) {
-      throw new Error('Invalid enrollment key or organization inactive');
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const verificationStatus = organization.requiresVerification
-      ? 'PENDING'
-      : 'APPROVED';
-
-    return this.prisma.globalOrganizationUser.create({
-      data: {
-        userId,
-        organizationId: organization.id,
-        role,
-        hashedPassword,
-        verificationStatus,
-      },
-      include: {
-        user: true,
-        organization: true,
-      },
-    });
-  }
-
-  async verifyGlobalOrganizationUser(
-    organizationUserId: number,
-    verifierId: number,
-    approved: boolean,
-  ) {
-    const status = approved ? 'APPROVED' : 'REJECTED';
-
-    return this.prisma.globalOrganizationUser.update({
-      where: { id: organizationUserId },
-      data: {
-        verificationStatus: status,
-        verifiedBy: verifierId,
-        verifiedAt: new Date(),
-      },
-      include: {
-        user: true,
-        organization: true,
-        verifier: true,
-      },
-    });
-  }
-
-  // Lecture Methods
-  async createLecture(
-    title: string,
-    description: string,
-    content: string,
-    visibility: 'PUBLIC' | 'PRIVATE',
-    level: 'GLOBAL' | 'INSTITUTE_ORGANIZATION',
-    organizationId?: number,
-    organizationType?: 'institute' | 'global',
-  ) {
-    const data: any = {
-      title,
-      description,
-      content,
-      visibility,
-      level,
-    };
-
-    if (level === 'INSTITUTE_ORGANIZATION' && organizationType === 'institute') {
-      data.instituteOrganizationId = organizationId;
-    } else if (level === 'GLOBAL' && organizationType === 'global') {
-      data.globalOrganizationId = organizationId;
-    }
-
-    return this.prisma.lecture.create({
-      data,
-      include: {
-        instituteOrganization: {
-          include: {
-            institute: true,
+        type,
+        isPublic,
+        enrollmentKey: isPublic ? null : enrollmentKey,
+        organizationUsers: {
+          create: {
+            userId: creatorUserId,
+            role: 'PRESIDENT',
+            isVerified: true,
           },
         },
-        globalOrganization: true,
-      },
-    });
-  }
-
-  async getPublicLectures() {
-    return this.prisma.lecture.findMany({
-      where: {
-        visibility: 'PUBLIC',
-        isActive: true,
       },
       include: {
-        instituteOrganization: {
+        organizationUsers: {
           include: {
-            institute: true,
-          },
-        },
-        globalOrganization: true,
-      },
-    });
-  }
-
-  async getOrganizationLectures(
-    organizationId: number,
-    organizationType: 'institute' | 'global',
-  ) {
-    const where: any = {
-      isActive: true,
-    };
-
-    if (organizationType === 'institute') {
-      where.instituteOrganizationId = organizationId;
-    } else {
-      where.globalOrganizationId = organizationId;
-    }
-
-    return this.prisma.lecture.findMany({
-      where,
-      include: {
-        instituteOrganization: {
-          include: {
-            institute: true,
-          },
-        },
-        globalOrganization: true,
-      },
-    });
-  }
-
-  // Utility Methods
-  private generateEnrollmentKey(): string {
-    return Math.random().toString(36).substring(2, 15) +
-           Math.random().toString(36).substring(2, 15);
-  }
-
-  async getUserOrganizations(userId: number) {
-    const [instituteOrgs, globalOrgs] = await Promise.all([
-      this.prisma.instituteOrganizationUser.findMany({
-        where: { userId, isActive: true },
-        include: {
-          organization: {
-            include: {
-              institute: true,
+            user: {
+              select: {
+                userId: true,
+                email: true,
+                name: true,
+              },
             },
           },
         },
-      }),
-      this.prisma.globalOrganizationUser.findMany({
-        where: { userId, isActive: true },
-        include: {
-          organization: true,
-        },
-      }),
-    ]);
+      },
+    });
 
-    return {
-      instituteOrganizations: instituteOrgs,
-      globalOrganizations: globalOrgs,
-    };
+    return organization;
+  }
+
+  /**
+   * Get all organizations (public ones or user's organizations)
+   */
+  async getOrganizations(userId?: string) {
+    const where: any = {};
+
+    if (userId) {
+      // Get user's organizations and public organizations
+      where.OR = [
+        { isPublic: true },
+        {
+          organizationUsers: {
+            some: {
+              userId,
+            },
+          },
+        },
+      ];
+    } else {
+      // Only public organizations for unauthenticated users
+      where.isPublic = true;
+    }
+
+    return this.prisma.organization.findMany({
+      where,
+      include: {
+        organizationUsers: {
+          include: {
+            user: {
+              select: {
+                userId: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        },
+        _count: {
+          select: {
+            organizationUsers: true,
+            causes: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get organization by ID
+   */
+  async getOrganizationById(organizationId: string, userId?: string) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { organizationId },
+      include: {
+        organizationUsers: {
+          include: {
+            user: {
+              select: {
+                userId: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        },
+        causes: {
+          where: userId ? {
+            OR: [
+              { isPublic: true },
+              {
+                organization: {
+                  organizationUsers: {
+                    some: {
+                      userId,
+                    },
+                  },
+                },
+              },
+            ],
+          } : { isPublic: true },
+        },
+      },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Check if user has access to this organization
+    if (!organization.isPublic && userId) {
+      const userInOrg = organization.organizationUsers.find(ou => ou.userId === userId);
+      if (!userInOrg) {
+        throw new ForbiddenException('Access denied to this organization');
+      }
+    } else if (!organization.isPublic && !userId) {
+      throw new ForbiddenException('Access denied to this organization');
+    }
+
+    return organization;
+  }
+
+  /**
+   * Update organization
+   */
+  async updateOrganization(organizationId: string, updateOrganizationDto: UpdateOrganizationDto, userId: string) {
+    const { name, isPublic, enrollmentKey } = updateOrganizationDto;
+
+    // Check if user has admin/president role
+    await this.checkUserRole(organizationId, userId, ['ADMIN', 'PRESIDENT']);
+
+    // Validate enrollment key requirement
+    if (isPublic === false && !enrollmentKey) {
+      throw new BadRequestException('Enrollment key is required for private organizations');
+    }
+
+    // Check if enrollment key is unique (if provided and different)
+    if (enrollmentKey) {
+      const existingOrg = await this.prisma.organization.findFirst({
+        where: {
+          enrollmentKey,
+          NOT: { organizationId },
+        },
+      });
+      if (existingOrg) {
+        throw new BadRequestException('Enrollment key already exists');
+      }
+    }
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (isPublic !== undefined) {
+      updateData.isPublic = isPublic;
+      updateData.enrollmentKey = isPublic ? null : enrollmentKey;
+    }
+
+    return this.prisma.organization.update({
+      where: { organizationId },
+      data: updateData,
+      include: {
+        organizationUsers: {
+          include: {
+            user: {
+              select: {
+                userId: true,
+                email: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Delete organization
+   */
+  async deleteOrganization(organizationId: string, userId: string) {
+    // Check if user has president role
+    await this.checkUserRole(organizationId, userId, ['PRESIDENT']);
+
+    return this.prisma.organization.delete({
+      where: { organizationId },
+    });
+  }
+
+  /**
+   * Enroll user in organization
+   */
+  async enrollUser(enrollUserDto: EnrollUserDto, userId: string) {
+    const { organizationId, enrollmentKey } = enrollUserDto;
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { organizationId },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    // Check if user is already enrolled
+    const existingEnrollment = await this.prisma.organizationUser.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+    });
+
+    if (existingEnrollment) {
+      throw new BadRequestException('User is already enrolled in this organization');
+    }
+
+    // Validate enrollment key for private organizations
+    if (!organization.isPublic) {
+      if (!enrollmentKey || enrollmentKey !== organization.enrollmentKey) {
+        throw new BadRequestException('Invalid enrollment key');
+      }
+    }
+
+    // Enroll user
+    return this.prisma.organizationUser.create({
+      data: {
+        organizationId,
+        userId,
+        role: 'MEMBER',
+        isVerified: organization.isPublic, // Auto-verify for public organizations
+      },
+      include: {
+        user: {
+          select: {
+            userId: true,
+            email: true,
+            name: true,
+          },
+        },
+        organization: {
+          select: {
+            organizationId: true,
+            name: true,
+            type: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Verify user in organization
+   */
+  async verifyUser(organizationId: string, verifyUserDto: VerifyUserDto, verifierUserId: string) {
+    const { userId, isVerified } = verifyUserDto;
+
+    // Check if verifier has admin/president role
+    await this.checkUserRole(organizationId, verifierUserId, ['ADMIN', 'PRESIDENT']);
+
+    // Check if user exists in organization
+    const organizationUser = await this.prisma.organizationUser.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+    });
+
+    if (!organizationUser) {
+      throw new NotFoundException('User not found in organization');
+    }
+
+    return this.prisma.organizationUser.update({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+      data: { isVerified },
+      include: {
+        user: {
+          select: {
+            userId: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Get organization members
+   */
+  async getOrganizationMembers(organizationId: string, userId: string) {
+    // Check if user has access to this organization
+    await this.checkUserAccess(organizationId, userId);
+
+    return this.prisma.organizationUser.findMany({
+      where: { organizationId },
+      include: {
+        user: {
+          select: {
+            userId: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [
+        { role: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+  }
+
+  /**
+   * Leave organization
+   */
+  async leaveOrganization(organizationId: string, userId: string) {
+    const organizationUser = await this.prisma.organizationUser.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+    });
+
+    if (!organizationUser) {
+      throw new NotFoundException('User not found in organization');
+    }
+
+    if (organizationUser.role === 'PRESIDENT') {
+      throw new BadRequestException('President cannot leave organization. Transfer role first.');
+    }
+
+    return this.prisma.organizationUser.delete({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+    });
+  }
+
+  /**
+   * Helper: Check if user has required role in organization
+   */
+  private async checkUserRole(organizationId: string, userId: string, requiredRoles: string[]) {
+    const organizationUser = await this.prisma.organizationUser.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId,
+          userId,
+        },
+      },
+    });
+
+    if (!organizationUser) {
+      throw new ForbiddenException('User is not a member of this organization');
+    }
+
+    if (!organizationUser.isVerified) {
+      throw new ForbiddenException('User is not verified in this organization');
+    }
+
+    if (!requiredRoles.includes(organizationUser.role)) {
+      throw new ForbiddenException('Insufficient permissions');
+    }
+  }
+
+  /**
+   * Helper: Check if user has access to organization
+   */
+  private async checkUserAccess(organizationId: string, userId: string) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { organizationId },
+      include: {
+        organizationUsers: {
+          where: { userId },
+        },
+      },
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    if (!organization.isPublic && organization.organizationUsers.length === 0) {
+      throw new ForbiddenException('Access denied to this organization');
+    }
   }
 }

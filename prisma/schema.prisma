@@ -10,348 +10,216 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Users table - synced from main LMS
+// ============================================================================
+// EXTERNAL TABLES (Read-only, no CRUD operations)
+// ============================================================================
+
+// Main user table managed externally
 model User {
-  id               Int                           @id @default(autoincrement())
-  externalId       String                        @unique // ID from main LMS
-  email            String                        @unique
-  username         String                        @unique
-  firstName        String
-  lastName         String
-  profilePicture   String?
-  password         String?                       // Encrypted password using bcrypt (nullable for migration)
-  userType         UserType                      @default(STUDENT)
-  isActive         Boolean                       @default(true)
-  lastSyncedAt     DateTime                      @default(now())
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  userId    String   @id @default(cuid()) @db.VarChar(191)
+  email     String   @unique @db.VarChar(191)
+  password  String   @db.VarChar(255) // Hashed password for main system
+  name      String   @db.VarChar(191)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Organization Relations
-  instituteOrgUsers     InstituteOrganizationUser[]
-  globalOrgUsers        GlobalOrganizationUser[]
-  verifiedInstituteOrgs InstituteOrganizationUser[] @relation("VerifiedBy")
-  verifiedGlobalOrgs    GlobalOrganizationUser[]    @relation("GlobalVerifiedBy")
-  
-  // Cause Relations
-  causeEnrollments         CauseEnrollment[]           @relation("UserCauseEnrollments")
-  verifiedCauseEnrollments CauseEnrollment[]           @relation("CauseVerifiedBy")
-  uploadedDocuments        LectureDocument[]
+  // Relations
+  instituteUsers    InstituteUser[]
+  organizationUsers OrganizationUser[]
+  userAuth          UserAuth?
 
-  @@map("users")
+  @@map("user")
 }
 
-// Institutes table - synced from main LMS
+// Institute table managed externally
 model Institute {
-  id               Int                           @id @default(autoincrement())
-  externalId       String                        @unique // ID from main LMS
-  name             String
-  code             String                        @unique
-  description      String?
-  logo             String?
-  isActive         Boolean                       @default(true)
-  lastSyncedAt     DateTime                      @default(now())
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+  instituteId String   @id @default(cuid()) @db.VarChar(191)
+  name        String   @db.VarChar(191)
+  imageUrl    String?  @db.VarChar(500)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  organizations    InstituteOrganization[]
+  instituteUsers InstituteUser[]
 
-  @@map("institutes")
+  @@map("institute")
 }
 
-// Organizations within institutes
-model InstituteOrganization {
-  id               Int                           @id @default(autoincrement())
-  instituteId      Int
-  name             String
-  description      String?
-  logo             String?
-  enrollmentKey    String                        @unique
-  requiresVerification Boolean                   @default(false)
-  isActive         Boolean                       @default(true)
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+// Junction table for institute users (managed externally)
+model InstituteUser {
+  instituteId String   @db.VarChar(191)
+  userId      String   @db.VarChar(191)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
-  institute        Institute                     @relation(fields: [instituteId], references: [id], onDelete: Cascade)
-  users            InstituteOrganizationUser[]
-  lectures         Lecture[]
-  causes           Cause[]
+  institute Institute @relation(fields: [instituteId], references: [instituteId], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  @@map("institute_organizations")
+  @@id([instituteId, userId])
+  @@map("institute_users")
 }
 
-enum OrganizationUserRole {
-  PRESIDENT
-  VICE_PRESIDENT
-  SECRETARY
-  TREASURER
-  MEMBER
-  MODERATOR
-}
+// ============================================================================
+// AUTHENTICATION SYSTEM (Full CRUD)
+// ============================================================================
 
-enum VerificationStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-// Users in institute organizations with separate authentication
-model InstituteOrganizationUser {
-  id               Int                           @id @default(autoincrement())
-  userId           Int
-  organizationId   Int
-  role             OrganizationUserRole          @default(MEMBER)
-  hashedPassword   String                        // Separate password for organization access
-  verificationStatus VerificationStatus          @default(PENDING)
-  verifiedBy       Int?                          // User ID who verified
-  verifiedAt       DateTime?
-  enrolledAt       DateTime                      @default(now())
-  isActive         Boolean                       @default(true)
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+// Separate authentication system for this service
+model UserAuth {
+  authId    String    @id @default(cuid()) @db.VarChar(191)
+  userId    String    @unique @db.VarChar(191)
+  password  String    @db.VarChar(255) // Hashed password for this system (bcrypt)
+  lastLogin DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   // Relations
-  user             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization     InstituteOrganization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  verifier         User?                         @relation("VerifiedBy", fields: [verifiedBy], references: [id])
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  @@unique([userId, organizationId])
-  @@map("institute_organization_users")
+  @@map("user_auth")
 }
 
-// Global organizations (not tied to specific institutes)
-model GlobalOrganization {
-  id               Int                           @id @default(autoincrement())
-  name             String
-  description      String?
-  logo             String?
-  enrollmentKey    String                        @unique
-  requiresVerification Boolean                   @default(false)
-  isActive         Boolean                       @default(true)
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+// ============================================================================
+// ORGANIZATION SYSTEM (Full CRUD)
+// ============================================================================
 
-  // Relations
-  users            GlobalOrganizationUser[]
-  lectures         Lecture[]
-  causes           Cause[]
-
-  @@map("global_organizations")
-}
-
-enum GlobalUserRole {
-  ADMIN
-  PRESIDENT
-  VICE_PRESIDENT
-  SECRETARY
-  TREASURER
-  MEMBER
-  MODERATOR
-}
-
-// Users in global organizations with separate authentication
-model GlobalOrganizationUser {
-  id               Int                           @id @default(autoincrement())
-  userId           Int
-  organizationId   Int
-  role             GlobalUserRole                @default(MEMBER)
-  hashedPassword   String                        // Separate password for organization access
-  verificationStatus VerificationStatus          @default(PENDING)
-  verifiedBy       Int?                          // User ID who verified
-  verifiedAt       DateTime?
-  enrolledAt       DateTime                      @default(now())
-  isActive         Boolean                       @default(true)
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
-
-  // Relations
-  user             User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization     GlobalOrganization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  verifier         User?                         @relation("GlobalVerifiedBy", fields: [verifiedBy], references: [id])
-
-  @@unique([userId, organizationId])
-  @@map("global_organization_users")
-}
-
-enum LectureVisibility {
-  PUBLIC
-  PRIVATE
-}
-
-enum LectureLevel {
+// Enum for organization types
+enum OrganizationType {
+  INSTITUTE
   GLOBAL
-  INSTITUTE_ORGANIZATION
 }
 
-// Lectures for organizations - No enrollment tracking
-model Lecture {
-  id                    Int                           @id @default(autoincrement())
-  title                 String
-  description           String?
-  content               String?                       @db.LongText
-  visibility            LectureVisibility             @default(PRIVATE)
-  level                 LectureLevel
-  
-  // For institute organization lectures
-  instituteOrganizationId Int?
-  
-  // For global organization lectures
-  globalOrganizationId    Int?
-  
-  isActive              Boolean                       @default(true)
-  createdAt             DateTime                      @default(now())
-  updatedAt             DateTime                      @updatedAt
+// Organization table
+model Organization {
+  organizationId String           @id @default(cuid()) @db.VarChar(191)
+  name           String           @db.VarChar(191)
+  type           OrganizationType
+  isPublic       Boolean          @default(false)
+  enrollmentKey  String?          @unique @db.VarChar(191) // Nullable for public organizations
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   // Relations
-  instituteOrganization InstituteOrganization?        @relation(fields: [instituteOrganizationId], references: [id], onDelete: Cascade)
-  globalOrganization    GlobalOrganization?           @relation(fields: [globalOrganizationId], references: [id], onDelete: Cascade)
+  organizationUsers OrganizationUser[]
+  causes            Cause[]
 
-  @@map("lectures")
+  @@index([type])
+  @@index([isPublic])
+  @@map("organization")
 }
 
-enum CauseVisibility {
-  PUBLIC
-  PRIVATE
-}
-
-// Causes for organizations - like campaigns or programs
-model Cause {
-  id                      Int                           @id @default(autoincrement())
-  title                   String
-  description             String?
-  content                 String?                       @db.LongText
-  coverImage              String?                       // URL to cover image
-  visibility              CauseVisibility               @default(PRIVATE)
-  requiresVerification    Boolean                       @default(false)
-  enrollmentKey           String?                       @unique // Optional enrollment key
-  
-  // For institute organization causes
-  instituteOrganizationId Int?
-  
-  // For global organization causes
-  globalOrganizationId    Int?
-  
-  isActive                Boolean                       @default(true)
-  createdAt               DateTime                      @default(now())
-  updatedAt               DateTime                      @updatedAt
-
-  // Relations
-  instituteOrganization   InstituteOrganization?        @relation(fields: [instituteOrganizationId], references: [id], onDelete: Cascade)
-  globalOrganization      GlobalOrganization?           @relation(fields: [globalOrganizationId], references: [id], onDelete: Cascade)
-  enrollments             CauseEnrollment[]
-  lectures                CauseLecture[]
-
-  @@map("causes")
-}
-
-// User enrollment in causes
-model CauseEnrollment {
-  id                 Int                           @id @default(autoincrement())
-  userId             Int
-  causeId            Int
-  verificationStatus VerificationStatus            @default(PENDING)
-  verifiedBy         Int?                          // User ID who verified
-  verifiedAt         DateTime?
-  enrolledAt         DateTime                      @default(now())
-  isActive           Boolean                       @default(true)
-  createdAt          DateTime                      @default(now())
-  updatedAt          DateTime                      @updatedAt
-
-  // Relations
-  user               User                          @relation("UserCauseEnrollments", fields: [userId], references: [id], onDelete: Cascade)
-  cause              Cause                         @relation(fields: [causeId], references: [id], onDelete: Cascade)
-  verifier           User?                         @relation("CauseVerifiedBy", fields: [verifiedBy], references: [id])
-
-  @@unique([userId, causeId])
-  @@map("cause_enrollments")
-}
-
-enum LectureType {
-  LIVE
-  RECORDED
-  HYBRID
-}
-
-enum LectureStatus {
-  SCHEDULED
-  LIVE
-  COMPLETED
-  CANCELLED
-}
-
-// Lectures specific to causes
-model CauseLecture {
-  id                Int                           @id @default(autoincrement())
-  causeId           Int
-  title             String
-  description       String?
-  content           String?                       @db.LongText
-  type              LectureType                   @default(RECORDED)
-  status            LectureStatus                 @default(SCHEDULED)
-  
-  // Live streaming details
-  liveStreamUrl     String?
-  scheduledAt       DateTime?
-  startedAt         DateTime?
-  endedAt           DateTime?
-  
-  // Recording details
-  recordingUrl      String?
-  recordingAvailableAfter DateTime?               // When recording becomes available
-  
-  // Access control
-  visibility        LectureVisibility             @default(PRIVATE)
-  requiresEnrollment Boolean                      @default(true)
-  
-  isActive          Boolean                       @default(true)
-  createdAt         DateTime                      @default(now())
-  updatedAt         DateTime                      @updatedAt
-
-  // Relations
-  cause             Cause                         @relation(fields: [causeId], references: [id], onDelete: Cascade)
-  documents         LectureDocument[]
-
-  @@map("cause_lectures")
-}
-
-enum DocumentType {
-  PDF
-  DOC
-  DOCX
-  PPT
-  PPTX
-  IMAGE
-  VIDEO
-  AUDIO
-  OTHER
-}
-
-enum UserType {
-  STUDENT
-  INSTRUCTOR
+// Enum for user roles in organizations
+enum OrganizationRole {
+  MEMBER
+  MODERATOR
   ADMIN
-  STAFF
-  GUEST
+  PRESIDENT
 }
 
-// Documents attached to cause lectures
-model LectureDocument {
-  id               Int                           @id @default(autoincrement())
-  causeLectureId   Int
-  title            String
-  description      String?
-  documentUrl      String                        // URL to the document
-  documentType     DocumentType
-  fileSize         Int?                          // File size in bytes
-  uploadedBy       Int                           // User ID who uploaded
-  isActive         Boolean                       @default(true)
-  createdAt        DateTime                      @default(now())
-  updatedAt        DateTime                      @updatedAt
+// Junction table for organization users
+model OrganizationUser {
+  organizationId String           @db.VarChar(191)
+  userId         String           @db.VarChar(191)
+  role           OrganizationRole @default(MEMBER)
+  isVerified     Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   // Relations
-  causeLecture     CauseLecture                  @relation(fields: [causeLectureId], references: [id], onDelete: Cascade)
-  uploader         User                          @relation(fields: [uploadedBy], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [organizationId], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
-  @@map("lecture_documents")
+  @@id([organizationId, userId])
+  @@index([role])
+  @@index([isVerified])
+  @@map("organization_users")
+}
+
+// ============================================================================
+// CAUSE SYSTEM (Full CRUD)
+// ============================================================================
+
+// Cause table linked to organizations
+model Cause {
+  causeId        String   @id @default(cuid()) @db.VarChar(191)
+  organizationId String   @db.VarChar(191)
+  title          String   @db.VarChar(191)
+  description    String?  @db.Text
+  isPublic       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [organizationId], onDelete: Cascade)
+  lectures     Lecture[]
+  assignments  Assignment[]
+
+  @@index([organizationId])
+  @@index([isPublic])
+  @@map("cause")
+}
+
+// ============================================================================
+// LECTURE SYSTEM (Full CRUD)
+// ============================================================================
+
+// Lecture table linked to causes
+model Lecture {
+  lectureId      String   @id @default(cuid()) @db.VarChar(191)
+  causeId        String   @db.VarChar(191)
+  title          String   @db.VarChar(191)
+  content        String?  @db.Text
+  isPublic       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  cause           Cause           @relation(fields: [causeId], references: [causeId], onDelete: Cascade)
+  documentations  Documentation[]
+
+  @@index([causeId])
+  @@index([isPublic])
+  @@map("lecture")
+}
+
+// ============================================================================
+// ASSIGNMENT SYSTEM (Full CRUD)
+// ============================================================================
+
+// Assignment table linked to causes
+model Assignment {
+  assignmentId String    @id @default(cuid()) @db.VarChar(191)
+  causeId      String    @db.VarChar(191)
+  title        String    @db.VarChar(191)
+  description  String?   @db.Text
+  dueDate      DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  cause Cause @relation(fields: [causeId], references: [causeId], onDelete: Cascade)
+
+  @@index([causeId])
+  @@index([dueDate])
+  @@map("assignment")
+}
+
+// ============================================================================
+// DOCUMENTATION SYSTEM (Full CRUD)
+// ============================================================================
+
+// Documentation table linked to lectures
+model Documentation {
+  documentationId String   @id @default(cuid()) @db.VarChar(191)
+  lectureId       String   @db.VarChar(191)
+  title           String   @db.VarChar(191)
+  content         String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  lecture Lecture @relation(fields: [lectureId], references: [lectureId], onDelete: Cascade)
+
+  @@index([lectureId])
+  @@map("documentation")
 }

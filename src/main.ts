@@ -1,91 +1,66 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
-import { SecurityMiddleware } from './common/middleware/security.middleware';
-import { GlobalExceptionFilter } from './common/filters/exception.filter';
-import { ValidationPipe as CustomValidationPipe } from './common/pipes/validation.pipe';
-import { RequestLoggingInterceptor, SecurityHeadersInterceptor } from './common/interceptors/security.interceptor';
-import { SecurityLoggerService } from './common/services/security-logger.service';
-import * as compression from 'compression';
+import { PrismaService } from './prisma/prisma.service';
+import helmet from 'helmet';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule);
   
-  try {
-    const app = await NestFactory.create(AppModule, {
-      logger: process.env.NODE_ENV === 'production' 
-        ? ['error', 'warn', 'log'] 
-        : ['error', 'warn', 'log', 'debug', 'verbose'],
-    });
+  // Get configuration service
+  const configService = app.get(ConfigService);
+  
+  // Get Prisma service for shutdown hooks
+  const prismaService = app.get(PrismaService);
+  
+  // Security middleware
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
 
-    // Security middleware (helmet, rate limiting, etc.)
-    app.use(new SecurityMiddleware().use);
-    
-    // Compression middleware
-    app.use(compression());
-    
-    // Enable CORS with security considerations
-    app.enableCors({
-      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-    });
+  // CORS configuration
+  app.enableCors({
+    origin: configService.get<string>('app.corsOrigin'),
+    methods: configService.get<string>('app.corsMethods'),
+    credentials: configService.get<boolean>('app.corsCredentials'),
+  });
 
-    // Global exception filter
-    app.useGlobalFilters(new GlobalExceptionFilter());
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // Strip non-whitelisted properties
+      forbidNonWhitelisted: true, // Throw error for non-whitelisted properties
+      transform: true, // Transform payloads to be objects typed according to their DTO classes
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
 
-    // Global validation with security
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        transformOptions: {
-          enableImplicitConversion: true,
-        },
-        disableErrorMessages: false, // Keep error messages for debugging
-      }),
-      new CustomValidationPipe(),
-    );
+  // Global prefix
+  app.setGlobalPrefix('api/v1');
 
-    // Security interceptors
-    const securityLogger = app.get(SecurityLoggerService);
-    app.useGlobalInterceptors(
-      new RequestLoggingInterceptor(securityLogger),
-      new SecurityHeadersInterceptor(),
-    );
+  // Prisma shutdown hooks
+  await prismaService.enableShutdownHooks(app);
 
-    // Set global prefix for API routes
-    app.setGlobalPrefix('api/v1');
-
-    // Graceful shutdown
-    process.on('SIGTERM', async () => {
-      logger.log('SIGTERM received, shutting down gracefully');
-      await app.close();
-      process.exit(0);
-    });
-
-    process.on('SIGINT', async () => {
-      logger.log('SIGINT received, shutting down gracefully');
-      await app.close();
-      process.exit(0);
-    });
-
-    const port = process.env.PORT ?? 3000;
-    await app.listen(port, '0.0.0.0');
-    
-    logger.log(`🚀 Organization Service is running securely on: ${await app.getUrl()}`);
-    logger.log(`📋 API Documentation available at: ${await app.getUrl()}/api/v1`);
-    logger.log(`🛡️  Security features enabled: Helmet, Rate Limiting, Input Validation, Audit Logging`);
-    
-  } catch (error) {
-    logger.error('Failed to start application', error);
-    process.exit(1);
-  }
+  // Start server
+  const port = configService.get<number>('app.port') || 3000;
+  await app.listen(port);
+  
+  console.log(`🚀 Application is running on: http://localhost:${port}/api/v1`);
+  console.log(`📚 API Documentation: http://localhost:${port}/api/v1/docs`);
 }
 
 bootstrap().catch((error) => {
-  console.error('Bootstrap failed:', error);
+  console.error('❌ Error starting server:', error);
   process.exit(1);
 });

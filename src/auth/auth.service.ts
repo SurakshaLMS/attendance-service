@@ -1,205 +1,156 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import * as bcrypt from 'bcryptjs';
-import { JwtPayload } from './jwt.strategy';
+import { LoginDto, SetupPasswordDto, ChangePasswordDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private configService: ConfigService,
   ) {}
 
-  async loginToOrganization(
-    userId: number,
-    organizationId: number,
-    password: string,
-  ) {
-    // First check if this is an institute organization
-    const instituteOrgUser = await this.prisma.instituteOrganizationUser.findUnique({
-      where: {
-        userId_organizationId: {
-          userId,
-          organizationId,
-        },
+  /**
+   * User login - validates credentials and returns JWT token
+   */
+  async login(loginDto: LoginDto) {
+    const { email, password } = loginDto;
+
+    // Find user by email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { userAuth: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Check if user has set up password for this system
+    if (!user.userAuth) {
+      throw new BadRequestException('Password not set up. Please set up your password first.');
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.userAuth.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Update last login
+    await this.prisma.userAuth.update({
+      where: { userId: user.userId },
+      data: { lastLogin: new Date() },
+    });
+
+    // Generate JWT token
+    const payload = { 
+      sub: user.userId, 
+      email: user.email, 
+      name: user.name 
+    };
+
+    const token = this.jwtService.sign(payload);
+
+    return {
+      access_token: token,
+      user: {
+        userId: user.userId,
+        email: user.email,
+        name: user.name,
       },
-      include: {
-        user: true,
-        organization: {
-          include: {
-            institute: true,
-          },
-        },
+    };
+  }
+
+  /**
+   * Setup password for first-time users
+   */
+  async setupPassword(setupPasswordDto: SetupPasswordDto) {
+    const { email, newPassword } = setupPasswordDto;
+
+    // Find user by email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { userAuth: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    // Check if password is already set up
+    if (user.userAuth) {
+      throw new ConflictException('Password already set up. Use change password instead.');
+    }
+
+    // Hash the new password
+    const saltRounds = this.configService.get<number>('auth.bcryptSaltRounds') || 12;
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+    // Create user auth record
+    await this.prisma.userAuth.create({
+      data: {
+        userId: user.userId,
+        password: hashedPassword,
       },
     });
 
-    if (instituteOrgUser) {
-      return this.processInstituteLogin(instituteOrgUser, password);
-    }
+    return {
+      message: 'Password set up successfully',
+    };
+  }
 
-    // If not found in institute orgs, check global organizations
-    const globalOrgUser = await this.prisma.globalOrganizationUser.findUnique({
-      where: {
-        userId_organizationId: {
-          userId,
-          organizationId,
-        },
-      },
-      include: {
-        user: true,
-        organization: true,
-      },
+  /**
+   * Change password for existing users
+   */
+  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
+    const { currentPassword, newPassword } = changePasswordDto;
+
+    // Find user auth record
+    const userAuth = await this.prisma.userAuth.findUnique({
+      where: { userId },
     });
 
-    if (globalOrgUser) {
-      return this.processGlobalLogin(globalOrgUser, password);
+    if (!userAuth) {
+      throw new BadRequestException('Password not set up. Please set up your password first.');
     }
 
-    throw new Error('User not found in any organization');
-  }
-
-  private async processInstituteLogin(orgUser: any, password: string) {
-    if (!orgUser || !orgUser.isActive) {
-      throw new Error('User not found in organization or inactive');
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, userAuth.password);
+    if (!isCurrentPasswordValid) {
+      throw new UnauthorizedException('Current password is incorrect');
     }
 
-    if (orgUser.verificationStatus !== 'APPROVED') {
-      throw new Error('User not approved for organization access');
-    }
+    // Hash the new password
+    const saltRounds = this.configService.get<number>('auth.bcryptSaltRounds') || 12;
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      orgUser.hashedPassword,
-    );
-
-    if (!isPasswordValid) {
-      throw new Error('Invalid password');
-    }
-
-    const payload: JwtPayload = {
-      sub: orgUser.userId,
-      email: orgUser.user.email,
-      institutes: [orgUser.organization.institute.id],
-      organizationType: 'institute',
-      organizationId: orgUser.organizationId,
-      role: orgUser.role,
-    };
+    // Update password
+    await this.prisma.userAuth.update({
+      where: { userId },
+      data: { password: hashedPassword },
+    });
 
     return {
-      access_token: this.jwtService.sign(payload),
-      user: {
-        id: orgUser.user.id,
-        email: orgUser.user.email,
-        firstName: orgUser.user.firstName,
-        lastName: orgUser.user.lastName,
-        role: orgUser.role,
-        organizationType: 'institute',
-        organization: {
-          id: orgUser.organization.id,
-          name: orgUser.organization.name,
-          institute: {
-            id: orgUser.organization.institute.id,
-            name: orgUser.organization.institute.name,
-          },
-        },
-      },
+      message: 'Password changed successfully',
     };
   }
 
-  private async processGlobalLogin(orgUser: any, password: string) {
-    if (!orgUser || !orgUser.isActive) {
-      throw new Error('User not found in organization or inactive');
+  /**
+   * Validate JWT token and return user information
+   */
+  async validateUser(payload: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { userId: payload.sub },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid token');
     }
 
-    if (orgUser.verificationStatus !== 'APPROVED') {
-      throw new Error('User not approved for organization access');
-    }
-
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      orgUser.hashedPassword,
-    );
-
-    if (!isPasswordValid) {
-      throw new Error('Invalid password');
-    }
-
-    const payload: JwtPayload = {
-      sub: orgUser.userId,
-      email: orgUser.user.email,
-      organizationType: 'global',
-      organizationId: orgUser.organizationId,
-      role: orgUser.role,
-    };
-
-    return {
-      access_token: this.jwtService.sign(payload),
-      user: {
-        id: orgUser.user.id,
-        email: orgUser.user.email,
-        firstName: orgUser.user.firstName,
-        lastName: orgUser.user.lastName,
-        role: orgUser.role,
-        organizationType: 'global',
-        organization: {
-          id: orgUser.organization.id,
-          name: orgUser.organization.name,
-        },
-      },
-    };
-  }
-
-  async loginToInstituteOrganization(
-    userId: number,
-    organizationId: number,
-    password: string,
-  ) {
-    // Use the unified login method
-    return this.loginToOrganization(userId, organizationId, password);
-  }
-
-  async loginToGlobalOrganization(
-    userId: number,
-    organizationId: number,
-    password: string,
-  ) {
-    // Use the unified login method
-    return this.loginToOrganization(userId, organizationId, password);
-  }
-
-  async setOrganizationPassword(
-    userId: number,
-    organizationId: number,
-    organizationType: 'institute' | 'global',
-    password: string,
-  ) {
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    if (organizationType === 'institute') {
-      return this.prisma.instituteOrganizationUser.update({
-        where: {
-          userId_organizationId: {
-            userId,
-            organizationId,
-          },
-        },
-        data: {
-          hashedPassword,
-        },
-      });
-    } else {
-      return this.prisma.globalOrganizationUser.update({
-        where: {
-          userId_organizationId: {
-            userId,
-            organizationId,
-          },
-        },
-        data: {
-          hashedPassword,
-        },
-      });
-    }
+    return user;
   }
 }
