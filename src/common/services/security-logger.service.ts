@@ -45,6 +45,23 @@ export class SecurityLoggerService {
     }
   }
 
+  // General logging methods
+  log(message: string, context?: any): void {
+    this.logger.log(message, { ...context, timestamp: new Date().toISOString() });
+  }
+
+  error(message: string, context?: any): void {
+    this.logger.error(message, { ...context, timestamp: new Date().toISOString() });
+  }
+
+  warn(message: string, context?: any): void {
+    this.logger.warn(message, { ...context, timestamp: new Date().toISOString() });
+  }
+
+  debug(message: string, context?: any): void {
+    this.logger.debug(message, { ...context, timestamp: new Date().toISOString() });
+  }
+
   logAPIAccess(req: Request, statusCode: number, responseTime: number): void {
     const logEntry = {
       method: req.method,
